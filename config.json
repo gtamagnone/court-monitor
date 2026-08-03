@@ -1,0 +1,10 @@
+{
+  "venue": "Esandi Padel",
+  "sportclub_id": 1684,
+
+  "watch":{
+    "days": ["wednesday", "thursday"],
+    "from": "16:30",
+    "to": "23:00"
+  }
+}
