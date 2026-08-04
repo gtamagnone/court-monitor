@@ -5,6 +5,6 @@
   "watch":{
     "days": ["wednesday", "thursday"],
     "from": "16:30",
-    "to": "23:00"
+    "to": "21:00"
   }
 }
