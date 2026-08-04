@@ -1,7 +1,9 @@
 import json
+import os
 from datetime import date, datetime, timedelta
 
 from atc import get_available_slots
+from notifier import send_telegram_message
 
 
 STATE_FILE = "state.json"
@@ -14,6 +16,16 @@ DAY_NAMES = {
     4: "friday",
     5: "saturday",
     6: "sunday",
+}
+
+DAY_NAMES_ES = {
+    "monday": "lunes",
+    "tuesday": "martes",
+    "wednesday": "miércoles",
+    "thursday": "jueves",
+    "friday": "viernes",
+    "saturday": "sábado",
+    "sunday": "domingo",
 }
 
 
@@ -59,15 +71,10 @@ def slot_matches(slot, config):
 
 def slot_id(slot):
     start = datetime.fromisoformat(slot["start"])
-
     return f"{slot['court_name']}|{start.isoformat()}"
 
 
 def get_dates_to_check(config):
-    """
-    Devuelve los próximos 7 días que coinciden
-    con los días configurados.
-    """
     wanted_days = set(config["watch"]["days"])
 
     today = date.today()
@@ -82,6 +89,21 @@ def get_dates_to_check(config):
     return dates
 
 
+def format_telegram_message(slot):
+    start = datetime.fromisoformat(slot["start"])
+
+    day_name = DAY_NAMES_ES[start.strftime("%A").lower()]
+
+    return (
+        "🎾 ¡SE LIBERÓ UN TURNO!\n\n"
+        "📍 Esandi Padel\n"
+        f"📅 {day_name} {start.strftime('%d/%m')}\n"
+        f"🕐 {start.strftime('%H:%M')}\n"
+        f"🏟️ {slot['court_name']}\n"
+        "\n👉 Entrá a ATC Sports para reservarlo."
+    )
+
+
 def main():
     config = load_config()
     previous_state = load_state()
@@ -91,22 +113,15 @@ def main():
 
     dates = get_dates_to_check(config)
 
-    print("Días a consultar:")
-
     for day in dates:
-        print(f"  - {day} ({DAY_NAMES[day.weekday()]})")
-
-    for day in dates:
-        print(f"\nConsultando ATC: {day}")
+        print(f"Consultando ATC: {day}")
 
         try:
             slots = get_available_slots(day)
 
         except Exception as e:
-            # MUY IMPORTANTE:
-            # No modificamos el estado si ATC falló.
             print(f"❌ ERROR consultando ATC: {e}")
-            print("   Se conserva el estado anterior para este día.")
+            print("   Se conserva el estado anterior.")
             continue
 
         matching_slots = [
@@ -128,34 +143,44 @@ def main():
 
         current_state[day.isoformat()] = current_ids
 
-        print(
-            f"   Disponibles dentro del rango: "
-            f"{len(matching_slots)}"
-        )
-
-    # Actualizamos solamente los días que pudimos consultar.
+    # Solo actualizamos los días consultados correctamente.
     new_state = previous_state.copy()
     new_state.update(current_state)
 
     save_state(new_state)
 
-    print("\n==============================")
-    print("NUEVOS TURNOS")
-    print("==============================")
+    print(f"\n🎾 Nuevos turnos detectados: {len(new_slots)}")
 
-    if not new_slots:
-        print("No se detectaron nuevos turnos.")
+    # Credenciales desde variables de entorno.
+    telegram_token = os.getenv("TELEGRAM_TOKEN")
+    telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if new_slots and not telegram_token:
+        print("⚠️ TELEGRAM_TOKEN no está configurado.")
+        print("No se enviaron notificaciones.")
 
     for slot in new_slots:
         start = datetime.fromisoformat(slot["start"])
 
         print(
-            f"🎾 NUEVO TURNO → "
-            f"{start.strftime('%A %d/%m a las %H:%M')} | "
+            f"  → {start.strftime('%d/%m %H:%M')} "
             f"{slot['court_name']}"
         )
 
-    print("==============================")
+        if telegram_token and telegram_chat_id:
+            message = format_telegram_message(slot)
+
+            try:
+                send_telegram_message(
+                    telegram_token,
+                    telegram_chat_id,
+                    message,
+                )
+
+                print("  📲 Telegram enviado.")
+
+            except Exception as e:
+                print(f"  ❌ Error enviando Telegram: {e}")
 
 
 if __name__ == "__main__":
